@@ -2,6 +2,16 @@ import pygame
 import json
 import time
 import math
+from normalized_input import NormalizedInput
+
+
+def update_mouse_input(input_state: NormalizedInput, width: int, height: int) -> None:
+    """Debug adapter: convert mouse pixels to the shared normalized interface."""
+    mouse_x, mouse_y = pygame.mouse.get_pos()
+    input_state.set_position(
+        (mouse_x - width // 2) / (width / 2),
+        (mouse_y - height // 2) / (height / 2),
+    )
 
 try:
     with open("config.json", "r") as f:
@@ -28,6 +38,7 @@ center_x = WIDTH // 2
 center_y = HEIGHT // 2
 
 eye_x, eye_y = 0.0, 0.0
+input_state = NormalizedInput()
 running = True
 
 BALL_RADIUS = 45
@@ -118,9 +129,13 @@ while running:
         elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             running = False
 
-    mouse_x, mouse_y = pygame.mouse.get_pos()
-    target_x = (mouse_x - center_x) / (WIDTH / 2)
-    target_y = (mouse_y - center_y) / (HEIGHT / 2)
+    # Replace this debug adapter with input_state.set_position(x, y) for tracking.
+    update_mouse_input(input_state, WIDTH, HEIGHT)
+    target_x, target_y = input_state.get_position()
+
+    # Keep lighting unsmoothed, as it was with the original mouse input.
+    light_x = center_x + target_x * (WIDTH / 2)
+    light_y = center_y + target_y * (HEIGHT / 2)
 
     eye_x += 0.2 * (target_x - eye_x)
     eye_y += 0.2 * (target_y - eye_y)
@@ -135,7 +150,7 @@ while running:
     far_dy = int(eye_y * config.get("far_factor", -0.04) * max_offset_y)
     far_rect = (center_x + far_dx - FAR_W // 2, center_y + far_dy - FAR_H // 2, FAR_W, FAR_H)
 
-    render_rounded_perspective_shadow(screen, far_rect, corner_radius=12, light_pos=(mouse_x, mouse_y), height_ratio=0.025, base_alpha=80)
+    render_rounded_perspective_shadow(screen, far_rect, corner_radius=12, light_pos=(light_x, light_y), height_ratio=0.025, base_alpha=80)
     pygame.draw.rect(screen, (46, 54, 74), pygame.Rect(far_rect), border_radius=12)
 
     MID_W, MID_H = 290, 195
@@ -143,7 +158,7 @@ while running:
     mid_dy = int(eye_y * config.get("mid_factor", -0.28) * max_offset_y)
     mid_rect = (center_x + mid_dx - MID_W // 2, center_y + mid_dy - MID_H // 2, MID_W, MID_H)
 
-    render_rounded_perspective_shadow(screen, mid_rect, corner_radius=10, light_pos=(mouse_x, mouse_y), height_ratio=0.075, base_alpha=120)
+    render_rounded_perspective_shadow(screen, mid_rect, corner_radius=10, light_pos=(light_x, light_y), height_ratio=0.075, base_alpha=120)
     pygame.draw.rect(screen, (74, 102, 146), pygame.Rect(mid_rect), border_radius=10)
     pygame.draw.rect(screen, (98, 128, 178), pygame.Rect(mid_rect), width=1, border_radius=10)
 
@@ -152,8 +167,8 @@ while running:
     ball_x = center_x + near_dx
     ball_y = center_y + near_dy
 
-    dx_ball = ball_x - mouse_x
-    dy_ball = ball_y - mouse_y
+    dx_ball = ball_x - light_x
+    dy_ball = ball_y - light_y
     dist_ball = math.hypot(dx_ball, dy_ball)
 
     stretch = 1.0 + min(dist_ball / 900.0, 0.25)
