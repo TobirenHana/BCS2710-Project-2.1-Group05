@@ -2,7 +2,9 @@ import pygame
 import json
 import time
 import math
+import argparse
 from normalized_input import NormalizedInput
+from scripted_input import ScriptedInputProvider
 
 
 def update_mouse_input(input_state: NormalizedInput, width: int, height: int) -> None:
@@ -12,6 +14,11 @@ def update_mouse_input(input_state: NormalizedInput, width: int, height: int) ->
         (mouse_x - width // 2) / (width / 2),
         (mouse_y - height // 2) / (height / 2),
     )
+
+parser = argparse.ArgumentParser(description="2.5D parallax prototype")
+parser.add_argument("--input-mode", choices=("mouse", "scripted"), default="mouse")
+args = parser.parse_args()
+scripted_input = ScriptedInputProvider() if args.input_mode == "scripted" else None
 
 try:
     with open("config.json", "r") as f:
@@ -129,8 +136,11 @@ while running:
         elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             running = False
 
-    # Replace this debug adapter with input_state.set_position(x, y) for tracking.
-    update_mouse_input(input_state, WIDTH, HEIGHT)
+    # Replace this input selection with input_state.set_position(x, y) for tracking.
+    if scripted_input is not None:
+        scripted_input.update(input_state)
+    else:
+        update_mouse_input(input_state, WIDTH, HEIGHT)
     target_x, target_y = input_state.get_position()
 
     # Keep lighting unsmoothed, as it was with the original mouse input.

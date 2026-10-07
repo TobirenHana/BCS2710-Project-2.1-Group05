@@ -13,6 +13,23 @@ Run: python3 parallax_system.py
 
 All parameters can be configured inside config.json.
 
+## Input modes
+
+Run these commands from `parallax_prototype/`:
+
+- Mouse debug mode (default): `python3 parallax_system.py`
+  or `python3 parallax_system.py --input-mode mouse`.
+- Scripted mode: `python3 parallax_system.py --input-mode scripted`.
+
+`ScriptedInputProvider` in `scripted_input.py` writes a normalized sample through
+`NormalizedInput.set_position(x, y)` once per frame. It starts at center and
+follows a figure-eight path: `x = sin(phase)`, `y = sin(2 * phase)`.
+The sequence repeats exactly every 600 frames (approximately 10 seconds at
+60 FPS). Each run starts at frame zero and produces the same sample sequence.
+There is no randomness or wall-clock dependency; changing FPS changes playback
+speed, not the coordinates at a given frame. Mouse movement has no effect in
+scripted mode. Both modes use the existing smoothing and rendering.
+
 ## Tracking-to-parallax interface
 
 `normalized_input.py` provides `NormalizedInput`, with no Pygame dependency.
@@ -28,9 +45,10 @@ Out-of-range values (including infinities) clamp to the nearest edge.
 NaN maps to center on the affected axis. Values must be convertible to floats;
 other values raise `TypeError` or `ValueError`.
 
-The main loop currently calls `update_mouse_input(input_state, WIDTH, HEIGHT)`
-as its debug input adapter. To integrate a future tracker, replace that call
-with `input_state.set_position(tracker_x, tracker_y)` each frame:
+The main loop selects either `update_mouse_input(input_state, WIDTH, HEIGHT)`
+or `scripted_input.update(input_state)`. To integrate a future tracker, replace
+that input selection with `input_state.set_position(tracker_x, tracker_y)`
+each frame:
 
 ```python
 input_state.set_position(-0.5, 0.25)  # Left of center, below center.
