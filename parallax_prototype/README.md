@@ -30,6 +30,36 @@ There is no randomness or wall-clock dependency; changing FPS changes playback
 speed, not the coordinates at a given frame. Mouse movement has no effect in
 scripted mode. Both modes use the existing smoothing and rendering.
 
+## Benchmark logging
+
+Benchmarking is optional and works with either input mode:
+
+```sh
+python3 parallax_system.py --benchmark
+python3 parallax_system.py --input-mode scripted --benchmark scripted_run.csv
+```
+
+`--benchmark` creates a unique `benchmark_*.csv` in the current directory.
+An optional path selects the output file; existing files are never overwritten.
+Without the flag, no CSV is opened or written. Rows are buffered during the run
+and flushed when the file closes on normal exit, including Escape.
+The file also closes during interpreter shutdown after an unhandled exception.
+
+All durations use `time.perf_counter()`. Each CSV row contains:
+
+| Column | Meaning |
+| --- | --- |
+| `frame_index` | Zero-based frame number for this run. |
+| `input_mode` | `mouse` or `scripted`. |
+| `frame_time_ms` | From loop entry through return of `pygame.display.flip()`: events, input provider, parallax calculations, drawing, FPS cap wait, and overlay. Excludes the subsequent CSV write. |
+| `fps` | Instantaneous FPS: `1000 / frame_time_ms`, rather than the overlay's averaged Pygame FPS. |
+| `input_to_render_ms` | From immediately before `NormalizedInput.get_position()` through the final scene blit: retrieval, smoothing, layer offsets, shadow calculations, and scene drawing. Excludes input generation, FPS cap wait, overlay, display flip, and CSV writing. |
+
+These are CPU-side timings. They do not measure physical display presentation
+or webcam/tracking processing. Logging has some overhead. The existing visual
+overlay is preserved; its `Loop Time` value still measures loop entry
+through the FPS cap wait and is separate from `input_to_render_ms`.
+
 ## Tracking-to-parallax interface
 
 `normalized_input.py` provides `NormalizedInput`, with no Pygame dependency.

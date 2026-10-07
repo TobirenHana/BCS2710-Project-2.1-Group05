@@ -5,6 +5,7 @@ import math
 import argparse
 from normalized_input import NormalizedInput
 from scripted_input import ScriptedInputProvider
+from benchmark import BenchmarkLogger
 
 
 def update_mouse_input(input_state: NormalizedInput, width: int, height: int) -> None:
@@ -17,8 +18,13 @@ def update_mouse_input(input_state: NormalizedInput, width: int, height: int) ->
 
 parser = argparse.ArgumentParser(description="2.5D parallax prototype")
 parser.add_argument("--input-mode", choices=("mouse", "scripted"), default="mouse")
+parser.add_argument(
+    "--benchmark", nargs="?", const="", default=None, metavar="CSV_PATH",
+    help="Log per-frame timings to CSV (default: a unique benchmark_*.csv file).",
+)
 args = parser.parse_args()
 scripted_input = ScriptedInputProvider() if args.input_mode == "scripted" else None
+benchmark = BenchmarkLogger(args.benchmark, args.input_mode) if args.benchmark is not None else None
 
 try:
     with open("config.json", "r") as f:
@@ -128,7 +134,7 @@ def render_rounded_perspective_shadow(dest_surface, rect, corner_radius, light_p
     dest_surface.blit(temp_surf, (0, 0))
 
 while running:
-    start_time = time.time()
+    start_time = time.perf_counter()
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -141,6 +147,7 @@ while running:
         scripted_input.update(input_state)
     else:
         update_mouse_input(input_state, WIDTH, HEIGHT)
+    input_start = time.perf_counter() if benchmark is not None else None
     target_x, target_y = input_state.get_position()
 
     # Keep lighting unsmoothed, as it was with the original mouse input.
@@ -199,16 +206,22 @@ while running:
 
     pygame.draw.circle(screen, (242, 186, 52), (ball_x, ball_y), BALL_RADIUS)
     screen.blit(ball_ambient_surf, (ball_x - BALL_RADIUS, ball_y - BALL_RADIUS))
-
+    input_to_render_seconds = time.perf_counter() - input_start if benchmark is not None else None
 
     clock.tick(config.get("fps", 60))
-    latency_ms = (time.time() - start_time) * 1000
+    latency_ms = (time.perf_counter() - start_time) * 1000
     fps = clock.get_fps()
 
     screen.blit(font.render(f"FPS: {fps:.1f}", True, (210, 215, 220)), (25, 20))
-    screen.blit(font.render(f"Render Latency: {latency_ms:.2f} ms", True, (210, 215, 220)), (25, 40))
+    screen.blit(font.render(f"Loop Time: {latency_ms:.2f} ms", True, (210, 215, 220)), (25, 40))
     screen.blit(font.render(f"Eye Norm: ({eye_x:.2f}, {eye_y:.2f})", True, (210, 215, 220)), (25, 60))
 
     pygame.display.flip()
+    if benchmark is not None:
+        frame_seconds = time.perf_counter() - start_time
+        benchmark.log_frame(frame_seconds, input_to_render_seconds)
 
 pygame.quit()
+if benchmark is not None:
+    benchmark.close()
+    print(f"Benchmark saved to {benchmark.path}")
