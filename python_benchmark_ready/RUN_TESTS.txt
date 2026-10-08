@@ -1,0 +1,16 @@
+Install: pip install -r requirements.txt
+Run from this folder. By default each test warms up for 5 seconds and records for 60 seconds.
+
+BASIC (repeat --run 1, 2, 3 and change file names):
+python parallax_system.py --input-mode scripted --test basic --objects 3 --duration 60 --run 1 --benchmark basic_1.csv
+
+COMPLEXITY (run with --objects 5, 20, 50 and repeat three times):
+python parallax_system.py --input-mode scripted --test complexity --objects 20 --duration 60 --run 1 --benchmark complexity_20_1.csv
+
+PARALLAX (run with --parallax on, off and repeat three times):
+python parallax_system.py --input-mode scripted --test parallax --parallax off --duration 60 --run 1 --benchmark parallax_off_1.csv
+
+STABILITY (repeat three times):
+python parallax_system.py --input-mode scripted --test stability --duration 300 --run 1 --benchmark stability_1.csv
+
+NOTE: Frame time includes any waiting from the 60 FPS limiter. CPU data is a per-process utilization sample, not whole-computer CPU; it can be greater than 100% on multicore CPUs. The input_to_render_ms metric measures internal CPU update/draw duration, not camera/display latency. Compare Godot measurements with matching definitions. Complexity objects are extra simple drawn circles and must be matched with comparable primitives in Godot.

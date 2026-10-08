@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://wj8hpaa8ijjj"
+
+[deps]
+
+files=["res://test/3D/basic_on_3_run3.test.translation", "res://test/3D/basic_on_3_run3.run.translation", "res://test/3D/basic_on_3_run3.object.translation", "res://test/3D/basic_on_3_run3.parallax.translation", "res://test/3D/basic_on_3_run3.frame.translation", "res://test/3D/basic_on_3_run3.fps.translation", "res://test/3D/basic_on_3_run3.memory.translation", "res://test/3D/basic_on_3_run3.process.translation"]
+
+source_file="res://test/3D/basic_on_3_run3.csv"
+dest_files=["res://test/3D/basic_on_3_run3.test.translation", "res://test/3D/basic_on_3_run3.run.translation", "res://test/3D/basic_on_3_run3.object.translation", "res://test/3D/basic_on_3_run3.parallax.translation", "res://test/3D/basic_on_3_run3.frame.translation", "res://test/3D/basic_on_3_run3.fps.translation", "res://test/3D/basic_on_3_run3.memory.translation", "res://test/3D/basic_on_3_run3.process.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://c1sh18lvtmgvy"
+
+[deps]
+
+files=["res://test/3D/complexity_on_50_run1.test.translation", "res://test/3D/complexity_on_50_run1.run.translation", "res://test/3D/complexity_on_50_run1.object.translation", "res://test/3D/complexity_on_50_run1.parallax.translation", "res://test/3D/complexity_on_50_run1.frame.translation", "res://test/3D/complexity_on_50_run1.fps.translation", "res://test/3D/complexity_on_50_run1.memory.translation", "res://test/3D/complexity_on_50_run1.process.translation"]
+
+source_file="res://test/3D/complexity_on_50_run1.csv"
+dest_files=["res://test/3D/complexity_on_50_run1.test.translation", "res://test/3D/complexity_on_50_run1.run.translation", "res://test/3D/complexity_on_50_run1.object.translation", "res://test/3D/complexity_on_50_run1.parallax.translation", "res://test/3D/complexity_on_50_run1.frame.translation", "res://test/3D/complexity_on_50_run1.fps.translation", "res://test/3D/complexity_on_50_run1.memory.translation", "res://test/3D/complexity_on_50_run1.process.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

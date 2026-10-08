@@ -1,0 +1,8 @@
+res://node_3d.tscn
+res://main.tscn
+res://3d/node_3d.tscn
+res://test_script.gd
+res://test/test_script.gd
+res://2d/main.tscn
+res://2d/2D_main.gd
+res://test/3D/parallax_on_3_run2.test.translation
