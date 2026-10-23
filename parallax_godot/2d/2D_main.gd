@@ -20,11 +20,11 @@ var ball_base_shadow: ImageTexture
 var ball_ambient: ImageTexture
 var font: Font
 
-var _frame_start_usec: int = 0
-var _latency_ms: float = 0.0
+var frame_start: int = 0
+var latency: float = 0.0
 
 func _ready() -> void:
-	_load_config()
+	load_config()
 	WIDTH = config["width"]
 	HEIGHT = config["height"]
 	get_window().size = Vector2i(WIDTH, HEIGHT)
@@ -32,20 +32,20 @@ func _ready() -> void:
 	Engine.max_fps = config["fps"]
 	center = Vector2(WIDTH, HEIGHT) / 2.0
 
-	BALL_SH_DIM = (BALL_RADIUS + BALL_SH_PAD) * 2.0
-	ball_base_shadow = _build_ball_shadow_texture()
-	ball_ambient = _build_ball_ambient_texture()
+	BALL_SH_DIM = (BALL_RADIUS + BALL_SH_PAD) * 2
+	ball_base_shadow = ball_shadow()
+	ball_ambient = ball_ambient_surf()
 	font = ThemeDB.fallback_font
 	
 func _process(_delta: float) -> void:
-	_frame_start_usec = Time.get_ticks_usec()
+	frame_start = Time.get_ticks_usec()
 
 	var target: Vector2
 
 	if benchmark_mode:
 		target = benchmark_eye
 	else:
-		var mouse := get_viewport().get_mouse_position()
+		var mouse := get_global_mouse_position()
 		target = Vector2(
 			(mouse.x - center.x) / (WIDTH / 2.0),
 			(mouse.y - center.y) / (HEIGHT / 2.0)
@@ -54,8 +54,8 @@ func _process(_delta: float) -> void:
 	eye += 0.2 * (target - eye)
 	queue_redraw()
 
-func _load_config() -> void:
-	var path := "res://config.json"
+func load_config() -> void:
+	var path := "res://2d/config.json"
 	if not FileAccess.file_exists(path):
 		return
 	var f := FileAccess.open(path, FileAccess.READ)
@@ -64,7 +64,7 @@ func _load_config() -> void:
 		for key in parsed.keys():
 			config[key] = parsed[key]
 			
-func _blend_pixel(img: Image, x: int, y: int, c: Color) -> void:
+func blend(img: Image, x: int, y: int, c: Color) -> void:
 	if x < 0 or y < 0 or x >= img.get_width() or y >= img.get_height():
 		return
 	var dst := img.get_pixel(x, y)
@@ -72,32 +72,32 @@ func _blend_pixel(img: Image, x: int, y: int, c: Color) -> void:
 	out.a = dst.a + c.a * (1.0 - dst.a)
 	img.set_pixel(x, y, out)
 	
-func _fill_circle(img: Image, c: Vector2, radius: float, color: Color) -> void:
+func circle(img: Image, c: Vector2, radius: float, color: Color) -> void:
 	var x0 := int(c.x - radius); var x1 := int(c.x + radius)
 	var y0 := int(c.y - radius); var y1 := int(c.y + radius)
 	for y in range(y0, y1 + 1):
 		for x in range(x0, x1 + 1):
 			if Vector2(x, y).distance_to(c) <= radius:
-				_blend_pixel(img, x, y, color)
+				blend(img, x, y, color)
 
-func _build_ball_shadow_texture() -> ImageTexture:
+func ball_shadow() -> ImageTexture:
 	var dim := int(BALL_SH_DIM)
 	var img := Image.create(dim, dim, false, Image.FORMAT_RGBA8)
 	var r := int(BALL_RADIUS + BALL_SH_PAD)
 	while r > BALL_RADIUS - 6:
 		var factor: float = clamp(1.0 - (r - BALL_RADIUS + 6) / (BALL_SH_PAD + 12), 0.0, 1.0)
 		var alpha := (115.0 * pow(factor, 1.5)) / 255.0
-		_fill_circle(img, Vector2(dim / 2.0, dim / 2.0), r, Color(4/255.0, 6/255.0, 12/255.0, alpha))
+		circle(img, Vector2(dim / 2.0, dim / 2.0), r, Color(4/255.0, 6/255.0, 12/255.0, alpha))
 		r -= 2
 	return ImageTexture.create_from_image(img)
 	
-func _build_ball_ambient_texture() -> ImageTexture:
+func ball_ambient_surf() -> ImageTexture:
 	var dim := int(BALL_RADIUS * 2)
 	var img := Image.create(dim, dim, false, Image.FORMAT_RGBA8)
 	var r := int(BALL_RADIUS)
 	while r > 4:
 		var alpha := (28.0 * (1.0 - float(r) / BALL_RADIUS)) / 255.0
-		_fill_circle(img, Vector2(BALL_RADIUS - 8, BALL_RADIUS - 8), r, Color(1, 1, 1, alpha))
+		circle(img, Vector2(BALL_RADIUS - 8, BALL_RADIUS - 8), r, Color(1, 1, 1, alpha))
 		r -= 2
 	return ImageTexture.create_from_image(img)
 
@@ -121,7 +121,7 @@ func get_rounded_rect_vertices(rect: Rect2, radius: float, points_per_corner: in
 
 	return vertices
 
-func _project_vertices(orig: PackedVector2Array, light_pos: Vector2, height_ratio: float, scale_mod: float) -> PackedVector2Array:
+func orig_vertices(orig: PackedVector2Array, light_pos: Vector2, height_ratio: float, scale_mod: float) -> PackedVector2Array:
 	var proj := PackedVector2Array()
 	for v in orig:
 		proj.append(v + (v - light_pos) * (height_ratio * scale_mod))
@@ -139,27 +139,27 @@ func render_rounded_perspective_shadow(
 	var orig := get_rounded_rect_vertices(rect, corner_radius)
 	var n := orig.size()
 
-	var penumbra := _project_vertices(
+	var penumbra := orig_vertices(
 		orig, light_pos, height_ratio, 1.18
 	)
 
-	if Geometry2D.triangulate_polygon(penumbra).size() >= 3:
-		draw_colored_polygon(
-			penumbra,
-			Color(5/255.0, 8/255.0, 14/255.0,
-				(base_alpha * 0.35) / 255.0)
-		)
 
-	var umbra := _project_vertices(
+	draw_colored_polygon(
+		penumbra,
+		Color(5/255.0, 8/255.0, 14/255.0,
+			(base_alpha * 0.35) / 255.0)
+	)
+
+	var umbra := orig_vertices(
 		orig, light_pos, height_ratio, 1.0
 	)
 
-	if Geometry2D.triangulate_polygon(umbra).size() >= 3:
-		draw_colored_polygon(
-			umbra,
-			Color(3/255.0, 4/255.0, 8/255.0,
-				(base_alpha * 0.85) / 255.0)
-		)
+
+	draw_colored_polygon(
+		umbra,
+		Color(3/255.0, 4/255.0, 8/255.0,
+			(base_alpha * 0.85) / 255.0)
+	)
 
 	for i in range(n):
 		var j := (i + 1) % n
@@ -174,7 +174,7 @@ func render_rounded_perspective_shadow(
 			p2.x - p1.x
 		)
 
-		if (mid - light_pos).dot(normal) > 0.0:
+		if (mid - light_pos).dot(normal) < 0.0:
 			var quad := PackedVector2Array([
 				p1, p2, umbra[j], umbra[i]
 			])
@@ -205,7 +205,7 @@ func _draw() -> void:
 	if benchmark_mode:
 		mouse = center + eye * Vector2(WIDTH / 2.0, HEIGHT / 2.0)
 	else:
-		mouse = get_viewport().get_mouse_position()
+		mouse = get_global_mouse_position()
 
 	# Far layer
 	var far_size := Vector2(480, 330)
@@ -222,10 +222,10 @@ func _draw() -> void:
 
 	# Near layer (ball)
 	var ball_pos : Vector2 = center + eye * config["near_factor"] * max_offset
-	_draw_ball(ball_pos, mouse)
-	_draw_hud()
+	draw_ball(ball_pos, mouse)
+	draw_hud()
 	
-func _draw_ball(ball_pos: Vector2, mouse: Vector2) -> void:
+func draw_ball(ball_pos: Vector2, mouse: Vector2) -> void:
 	var diff := ball_pos - mouse
 	var dist := diff.length()
 	var stretch: float = 1.0 + min(dist / 900.0, 0.25)
@@ -235,15 +235,15 @@ func _draw_ball(ball_pos: Vector2, mouse: Vector2) -> void:
 
 	var shadow_center := ball_pos + diff * 0.10
 	draw_set_transform(shadow_center, angle, Vector2(stretch, 1.0))
-	draw_texture(ball_base_shadow, -Vector2(BALL_SH_DIM, BALL_SH_DIM) / 2.0)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   # reset — see callout
+	draw_texture(ball_base_shadow, -Vector2(BALL_SH_DIM, BALL_SH_DIM) / 2.0, Color(1, 1, 1, 0.6))
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)   
 
 	draw_circle(ball_pos, BALL_RADIUS, Color8(242, 186, 52))
 	draw_texture(ball_ambient, ball_pos - Vector2(BALL_RADIUS, BALL_RADIUS))
 	
-func _draw_hud() -> void:
-	_latency_ms = (Time.get_ticks_usec() - _frame_start_usec) / 1000.0
+func draw_hud() -> void:
+	latency = (Time.get_ticks_usec() - frame_start) / 1000.0
 	var c := Color8(210, 215, 220)
 	draw_string(font, Vector2(25, 32), "FPS: %.1f" % Engine.get_frames_per_second(), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, c)
-	draw_string(font, Vector2(25, 52), "Render Latency: %.2f ms" % _latency_ms, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, c)
+	draw_string(font, Vector2(25, 52), "Render Latency: %.2f ms" % latency, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, c)
 	draw_string(font, Vector2(25, 72), "Eye Norm: (%.2f, %.2f)" % [eye.x, eye.y], HORIZONTAL_ALIGNMENT_LEFT, -1, 15, c)
