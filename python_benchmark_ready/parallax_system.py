@@ -5,6 +5,8 @@ import math
 import argparse
 from normalized_input import NormalizedInput
 from scripted_input import ScriptedInputProvider
+from simulated_input import SimulatedInputProvider
+from tracking_input import TrackingInput
 from benchmark import BenchmarkLogger
 
 
@@ -17,7 +19,7 @@ def update_mouse_input(input_state: NormalizedInput, width: int, height: int) ->
     )
 
 parser = argparse.ArgumentParser(description="2.5D parallax prototype")
-parser.add_argument("--input-mode", choices=("mouse", "scripted"), default="mouse")
+parser.add_argument("--input-mode", choices=("mouse", "scripted", "simulated"), default="mouse")
 parser.add_argument(
     "--benchmark", nargs="?", const="", default=None, metavar="CSV_PATH",
     help="Log per-frame timings to CSV (default: a unique benchmark_*.csv file).",
@@ -32,6 +34,7 @@ args = parser.parse_args()
 if args.duration <= 0 or args.warmup < 0:
     parser.error("Duration must be positive and warmup cannot be negative")
 scripted_input = ScriptedInputProvider() if args.input_mode == "scripted" else None
+simulated_input = SimulatedInputProvider() if args.input_mode == "simulated" else None
 benchmark = BenchmarkLogger(args.benchmark, args.input_mode, test=args.test,
     object_count=args.objects, parallax_enabled=args.parallax == "on", run=args.run) if args.benchmark is not None else None
 
@@ -60,7 +63,10 @@ center_x = WIDTH // 2
 center_y = HEIGHT // 2
 
 eye_x, eye_y = 0.0, 0.0
+raw_input = NormalizedInput()
 input_state = NormalizedInput()
+tracking = TrackingInput(config.get("tracking_hold_seconds", 0.5))
+tracking_found = True
 running = True
 experiment_started = time.perf_counter()
 recording_started = None
@@ -144,21 +150,46 @@ def render_rounded_perspective_shadow(dest_surface, rect, corner_radius, light_p
 
     dest_surface.blit(temp_surf, (0, 0))
 
+previous_frame_time = time.perf_counter()
 while running:
     start_time = time.perf_counter()
+    dt = start_time - previous_frame_time
+    previous_frame_time = start_time
+    calibrate_requested = False
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
         elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             running = False
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_c:
+                calibrate_requested = True
+            elif event.key == pygame.K_x:
+                tracking.reset()
+            elif simulated_input is not None:
+                if event.key == pygame.K_SPACE:
+                    simulated_input.toggle_pause()
+                elif event.key == pygame.K_l:
+                    tracking_found = not tracking_found
+                elif event.key == pygame.K_r:
+                    simulated_input.reset()
+                    tracking.reset()
+                    tracking_found = True
 
-    # Replace this input selection with input_state.set_position(x, y) for tracking.
-    if scripted_input is not None:
-        scripted_input.update(input_state)
+    # A future tracker should supply raw_input and tracking_found each frame.
+    if simulated_input is not None:
+        simulated_input.update(raw_input)
+    elif scripted_input is not None:
+        scripted_input.update(raw_input)
     else:
-        update_mouse_input(input_state, WIDTH, HEIGHT)
+        update_mouse_input(raw_input, WIDTH, HEIGHT)
     input_start = time.perf_counter() if benchmark is not None else None
+    raw_x, raw_y = raw_input.get_position()
+    if calibrate_requested and tracking_found:
+        tracking.calibrate(raw_x, raw_y)
+    x, y = tracking.update(raw_x, raw_y, tracking_found, dt)
+    input_state.set_position(x, y)
     target_x, target_y = input_state.get_position()
 
     # Keep lighting unsmoothed, as it was with the original mouse input.
@@ -239,6 +270,22 @@ while running:
     screen.blit(font.render(f"FPS: {fps:.1f}", True, (210, 215, 220)), (25, 20))
     screen.blit(font.render(f"Loop Time: {latency_ms:.2f} ms", True, (210, 215, 220)), (25, 40))
     screen.blit(font.render(f"Eye Norm: ({eye_x:.2f}, {eye_y:.2f})", True, (210, 215, 220)), (25, 60))
+    tracking_text = f"Input: {tracking.status} | Center: ({tracking.center_x:+.2f}, {tracking.center_y:+.2f})"
+    screen.blit(font.render(tracking_text, True, (210, 215, 220)), (25, 80))
+    screen.blit(font.render("C: set center | X: clear center", True, (210, 215, 220)), (25, 100))
+
+    if simulated_input is not None:
+        status = "PAUSED" if simulated_input.paused else "PLAYING"
+        raw_text = f"Raw x={raw_x:+.2f}, y={raw_y:+.2f}" if tracking_found else "Raw position unavailable"
+        demo_lines = (
+            "SIMULATED INPUT - NO WEBCAM TRACKING",
+            f"{status} | {simulated_input.stage} | {raw_text}",
+            f"Output x={target_x:+.2f}, y={target_y:+.2f} | {tracking.status}",
+            "C: set center | X: clear center | L: lose/restore tracking",
+            "Space: pause/resume | R: restart | Esc: quit",
+        )
+        for index, line in enumerate(demo_lines):
+            screen.blit(font.render(line, True, (210, 215, 220)), (25, HEIGHT - 110 + index * 20))
 
     pygame.display.flip()
     if benchmark is not None:
