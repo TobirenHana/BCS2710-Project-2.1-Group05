@@ -19,7 +19,10 @@ def update_mouse_input(input_state: NormalizedInput, width: int, height: int) ->
     )
 
 parser = argparse.ArgumentParser(description="2.5D parallax prototype")
-parser.add_argument("--input-mode", choices=("mouse", "scripted", "simulated"), default="mouse")
+parser.add_argument("--input-mode", choices=("mouse", "scripted", "simulated", "tracker"), default="mouse")
+parser.add_argument("--camera", type=int, default=0, help="Webcam index for --input-mode tracker")
+parser.add_argument("--track-point", choices=("eyes", "iris"), default="eyes",
+    help="Tracked point: eye-corner midpoint (head only) or iris midpoint")
 parser.add_argument(
     "--benchmark", nargs="?", const="", default=None, metavar="CSV_PATH",
     help="Log per-frame timings to CSV (default: a unique benchmark_*.csv file).",
@@ -51,6 +54,17 @@ except Exception:
         "near_factor": -0.70
     }
 
+# The tracker is created before the window so a missing camera fails fast.
+tracker_input = None
+if args.input_mode == "tracker":
+    from facelandmarker_input import FaceLandmarkerInputProvider
+    tracker_input = FaceLandmarkerInputProvider(
+        camera_index=args.camera,
+        point=args.track_point,
+        mirror=config.get("tracking_mirror", True),
+        max_age_seconds=config.get("tracking_max_age_seconds", 0.15),
+    )
+
 pygame.init()
 WIDTH = config.get("width", 800)
 HEIGHT = config.get("height", 600)
@@ -65,8 +79,11 @@ center_y = HEIGHT // 2
 eye_x, eye_y = 0.0, 0.0
 raw_input = NormalizedInput()
 input_state = NormalizedInput()
-tracking = TrackingInput(config.get("tracking_hold_seconds", 0.5))
+# Gain only applies to the webcam tracker; mouse/scripted/simulated already span [-1, 1].
+tracking_gain = config.get("tracking_gain", 2.5) if tracker_input is not None else 1.0
+tracking = TrackingInput(config.get("tracking_hold_seconds", 0.5), gain=tracking_gain)
 tracking_found = True
+auto_calibrated = tracker_input is None or not config.get("tracking_auto_calibrate", False)
 running = True
 experiment_started = time.perf_counter()
 recording_started = None
@@ -177,8 +194,9 @@ while running:
                     tracking.reset()
                     tracking_found = True
 
-    # A future tracker should supply raw_input and tracking_found each frame.
-    if simulated_input is not None:
+    if tracker_input is not None:
+        tracking_found = tracker_input.update(raw_input)
+    elif simulated_input is not None:
         simulated_input.update(raw_input)
     elif scripted_input is not None:
         scripted_input.update(raw_input)
@@ -186,8 +204,10 @@ while running:
         update_mouse_input(raw_input, WIDTH, HEIGHT)
     input_start = time.perf_counter() if benchmark is not None else None
     raw_x, raw_y = raw_input.get_position()
-    if calibrate_requested and tracking_found:
+    if tracking_found and (calibrate_requested or not auto_calibrated):
+        # In tracker mode, the first detected position becomes the centre.
         tracking.calibrate(raw_x, raw_y)
+        auto_calibrated = True
     x, y = tracking.update(raw_x, raw_y, tracking_found, dt)
     input_state.set_position(x, y)
     target_x, target_y = input_state.get_position()
@@ -274,6 +294,14 @@ while running:
     screen.blit(font.render(tracking_text, True, (210, 215, 220)), (25, 80))
     screen.blit(font.render("C: set center | X: clear center", True, (210, 215, 220)), (25, 100))
 
+    if tracker_input is not None:
+        tracker_text = (f"Tracker: {'face found' if tracking_found else 'no face'} | "
+                        f"detector {tracker_input.detector_ms:.1f} ms | camera {tracker_input.camera_fps:.0f} FPS | "
+                        f"gain {tracking.gain:.1f}")
+        if tracker_input.error is not None:
+            tracker_text = f"Tracker stopped: {tracker_input.error!r}"
+        screen.blit(font.render(tracker_text, True, (210, 215, 220)), (25, 120))
+
     if simulated_input is not None:
         status = "PAUSED" if simulated_input.paused else "PLAYING"
         raw_text = f"Raw x={raw_x:+.2f}, y={raw_y:+.2f}" if tracking_found else "Raw position unavailable"
@@ -299,6 +327,8 @@ while running:
                 running = False
 
 pygame.quit()
+if tracker_input is not None:
+    tracker_input.close()
 if benchmark is not None:
     benchmark.close()
     print(f"Benchmark saved to {benchmark.path}")

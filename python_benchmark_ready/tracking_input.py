@@ -2,8 +2,11 @@
 
 
 class TrackingInput:
-    def __init__(self, hold_seconds=0.5):
+    def __init__(self, hold_seconds=0.5, gain=1.0):
         self.hold_seconds = hold_seconds
+        # Scales movement after calibration. A real head only moves across a
+        # small part of the camera image, so the tracker needs gain > 1.
+        self.gain = gain
         self.reset()
 
     def reset(self):
@@ -27,8 +30,8 @@ class TrackingInput:
         dt = max(0.0, dt)
 
         if tracking_found:
-            target_x = max(-1.0, min(1.0, x - self.center_x))
-            target_y = max(-1.0, min(1.0, y - self.center_y))
+            target_x = max(-1.0, min(1.0, (x - self.center_x) * self.gain))
+            target_y = max(-1.0, min(1.0, (y - self.center_y) * self.gain))
 
             if self.lost_seconds > 0.0:
                 self.recovering = True

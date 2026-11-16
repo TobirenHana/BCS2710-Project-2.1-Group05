@@ -5,5 +5,9 @@
   "far_factor": -0.05,
   "mid_factor": -0.3,
   "near_factor": -0.75,
-  "tracking_hold_seconds": 0.5
+  "tracking_hold_seconds": 0.5,
+  "tracking_gain": 2.5,
+  "tracking_mirror": true,
+  "tracking_max_age_seconds": 0.15,
+  "tracking_auto_calibrate": false
 }

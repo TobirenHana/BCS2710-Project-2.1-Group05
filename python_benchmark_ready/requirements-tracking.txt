@@ -1,0 +1,3 @@
+# Extra packages for --input-mode tracker (install on top of requirements.txt)
+mediapipe
+opencv-python
