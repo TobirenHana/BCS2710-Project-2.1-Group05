@@ -20,6 +20,7 @@ import time
 import urllib.request
 
 from normalized_input import NormalizedInput
+from one_euro_filter import OneEuroFilter
 
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/face_landmarker/"
              "face_landmarker/float16/1/face_landmarker.task")
@@ -77,6 +78,8 @@ class FaceLandmarkerInputProvider:
         self.ids = TRACK_POINTS[point]
         self.mirror = mirror
         self.max_age_seconds = max_age_seconds
+        self.filter_x = OneEuroFilter(min_cutoff=1.0, beta=0.5)
+        self.filter_y = OneEuroFilter(min_cutoff=1.0, beta=0.5)
 
         if not os.path.exists(MODEL_PATH):
             print("Downloading Face Landmarker model...")
@@ -127,10 +130,16 @@ class FaceLandmarkerInputProvider:
 
                 if result.face_landmarks:
                     x, y = landmarks_to_normalized(result.face_landmarks[0], self.ids, self.mirror)
+
+                    x = self.filter_x.filter(x, captured_at)
+                    y = self.filter_y.filter(y, captured_at)
+
                     sample = (x, y, captured_at, True)
                 else:
-                    sample = (0.0, 0.0, captured_at, False)
+                    self.filter_x.reset()
+                    self.filter_y.reset()
 
+                    sample = (0.0, 0.0, captured_at, False)
                 with self._lock:
                     self._latest = sample
                     self.detector_ms = (detected_at - captured_at) * 1000.0
