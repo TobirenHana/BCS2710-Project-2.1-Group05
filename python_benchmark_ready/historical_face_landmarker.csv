@@ -1,0 +1,9 @@
+metric,value,unit,source,note
+processing_mean,12.27,ms,"Table 5, p.7",standalone tracker
+processing_sd,0.81,ms,"Table 5, p.7",500 frames
+estimated_capacity,81.5,FPS,"Table 5, p.7",not measured webcam throughput
+jitter_x_sd,1.66,px,"Table 5, p.7","180 frames, approximately 6 seconds"
+jitter_y_sd,0.93,px,"Table 5, p.7","180 frames, approximately 6 seconds"
+fast_movement_detection,100,%,"Table 5, p.7",301 of 301 frames
+cpu,66.8,%,"Table 5, p.7",monitoring convention not fully specified
+memory,181.2,MB,"Table 5, p.7",standalone tracker

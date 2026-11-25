@@ -3,6 +3,7 @@ import json
 import time
 import math
 import argparse
+from pathlib import Path
 from normalized_input import NormalizedInput
 from scripted_input import ScriptedInputProvider
 from simulated_input import SimulatedInputProvider
@@ -21,6 +22,7 @@ def update_mouse_input(input_state: NormalizedInput, width: int, height: int) ->
 parser = argparse.ArgumentParser(description="2.5D parallax prototype")
 parser.add_argument("--input-mode", choices=("mouse", "scripted", "simulated", "tracker"), default="mouse")
 parser.add_argument("--camera", type=int, default=0, help="Webcam index for --input-mode tracker")
+parser.add_argument("--video", help="Replay a recorded video instead of webcam in tracker mode")
 parser.add_argument("--track-point", choices=("eyes", "iris"), default="eyes",
     help="Tracked point: eye-corner midpoint (head only) or iris midpoint")
 parser.add_argument(
@@ -32,8 +34,11 @@ parser.add_argument("--objects", type=int, choices=(3, 5, 20, 50), default=3)
 parser.add_argument("--parallax", choices=("on", "off"), default="on")
 parser.add_argument("--duration", type=float, default=60.0, help="Seconds of recorded data")
 parser.add_argument("--warmup", type=float, default=5.0)
+parser.add_argument("--fps-cap", type=int, choices=(0, 60), default=None, help="0 = uncapped; default uses config")
 parser.add_argument("--run", type=int, default=1)
 args = parser.parse_args()
+if args.video and args.input_mode != "tracker":
+    parser.error("--video requires --input-mode tracker")
 if args.duration <= 0 or args.warmup < 0:
     parser.error("Duration must be positive and warmup cannot be negative")
 scripted_input = ScriptedInputProvider() if args.input_mode == "scripted" else None
@@ -60,9 +65,17 @@ if args.input_mode == "tracker":
     from facelandmarker_input import FaceLandmarkerInputProvider
     tracker_input = FaceLandmarkerInputProvider(
         camera_index=args.camera,
+        video_path=args.video,
+        telemetry=benchmark is not None,
         point=args.track_point,
         mirror=config.get("tracking_mirror", True),
         max_age_seconds=config.get("tracking_max_age_seconds", 0.15),
+        width=config.get("tracking_camera_width", 640),
+        height=config.get("tracking_camera_height", 480),
+        filter_enabled=config.get("tracking_filter_enabled", True),
+        min_cutoff=config.get("tracking_filter_min_cutoff", 1.0),
+        beta=config.get("tracking_filter_beta", 0.5),
+        d_cutoff=config.get("tracking_filter_d_cutoff", 1.0),
     )
 
 pygame.init()
@@ -84,6 +97,9 @@ tracking_gain = config.get("tracking_gain", 2.5) if tracker_input is not None el
 tracking = TrackingInput(config.get("tracking_hold_seconds", 0.5), gain=tracking_gain)
 tracking_found = True
 auto_calibrated = tracker_input is None or not config.get("tracking_auto_calibrate", False)
+calibration_samples = []
+calibration_sample_count = max(1, int(config.get("tracking_calibration_samples", 30)))
+last_calibration_timestamp = None
 running = True
 experiment_started = time.perf_counter()
 recording_started = None
@@ -204,10 +220,27 @@ while running:
         update_mouse_input(raw_input, WIDTH, HEIGHT)
     input_start = time.perf_counter() if benchmark is not None else None
     raw_x, raw_y = raw_input.get_position()
-    if tracking_found and (calibrate_requested or not auto_calibrated):
-        # In tracker mode, the first detected position becomes the centre.
+    if tracking_found and calibrate_requested:
         tracking.calibrate(raw_x, raw_y)
         auto_calibrated = True
+        calibration_samples.clear()
+
+    elif not auto_calibrated:
+        if not tracking_found:
+            calibration_samples.clear()
+            last_calibration_timestamp = None
+
+        elif tracker_input.sample_timestamp != last_calibration_timestamp:
+            last_calibration_timestamp = tracker_input.sample_timestamp
+            calibration_samples.append((raw_x, raw_y))
+
+            if len(calibration_samples) >= calibration_sample_count:
+                center_x_avg = sum(p[0] for p in calibration_samples) / len(calibration_samples)
+                center_y_avg = sum(p[1] for p in calibration_samples) / len(calibration_samples)
+
+                tracking.calibrate(center_x_avg, center_y_avg)
+                auto_calibrated = True
+                calibration_samples.clear()
     x, y = tracking.update(raw_x, raw_y, tracking_found, dt)
     input_state.set_position(x, y)
     target_x, target_y = input_state.get_position()
@@ -283,7 +316,7 @@ while running:
         pygame.draw.circle(screen, (135, 165, 204), (x, y), 10)
     input_to_render_seconds = time.perf_counter() - input_start if benchmark is not None else None
 
-    clock.tick(config.get("fps", 60))
+    clock.tick(args.fps_cap if args.fps_cap is not None else config.get("fps", 60))
     latency_ms = (time.perf_counter() - start_time) * 1000
     fps = clock.get_fps()
 
@@ -301,7 +334,18 @@ while running:
         if tracker_input.error is not None:
             tracker_text = f"Tracker stopped: {tracker_input.error!r}"
         screen.blit(font.render(tracker_text, True, (210, 215, 220)), (25, 120))
+    if tracker_input is not None:
+        if not auto_calibrated:
+                message = (
+                    f"Calibrating: {len(calibration_samples)}/"
+                    f"{calibration_sample_count} - Keep your head still"
+                )
+                color = (255, 200, 50)
+        else:
+                message = "Calibration complete"
+                color = (100, 220, 140)
 
+        screen.blit(font.render(message, True, color), (25, 140))
     if simulated_input is not None:
         status = "PAUSED" if simulated_input.paused else "PLAYING"
         raw_text = f"Raw x={raw_x:+.2f}, y={raw_y:+.2f}" if tracking_found else "Raw position unavailable"
@@ -322,13 +366,25 @@ while running:
             if recording_started is None:
                 recording_started = current
             frame_seconds = current - start_time
-            benchmark.log_frame(frame_seconds, input_to_render_seconds)
+            metrics = ()
+            if tracker_input is not None:
+                stamp = tracker_input.sample_timestamp
+                metrics = (int(tracking_found), tracker_input.sample_age_ms if tracking_found else "",
+                           (current - stamp) * 1000 if stamp is not None else "", int(auto_calibrated),
+                           raw_x if tracking_found else "", raw_y if tracking_found else "",
+                           target_x, target_y, tracking.status)
+            benchmark.log_frame(frame_seconds, input_to_render_seconds, metrics)
             if current - recording_started >= args.duration:
                 running = False
 
 pygame.quit()
 if tracker_input is not None:
     tracker_input.close()
+    if benchmark is not None and recording_started is not None:
+        tracker_input.save_telemetry(str(Path(benchmark.path).with_suffix(".tracking.csv")),
+                                     recording_started, current)
+    if tracker_input.error is not None:
+        raise RuntimeError("Tracker failed") from tracker_input.error
 if benchmark is not None:
     benchmark.close()
     print(f"Benchmark saved to {benchmark.path}")

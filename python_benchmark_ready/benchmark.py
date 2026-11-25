@@ -21,7 +21,9 @@ class BenchmarkLogger:
         self._writer.writerow((
             "frame_index", "elapsed_s", "test", "run", "input_mode", "object_count",
             "parallax_enabled", "frame_time_ms", "fps", "input_to_render_ms",
-            "cpu_percent", "memory_mb"
+            "cpu_percent", "memory_mb", "tracking_found", "sample_age_ms",
+            "sample_to_flip_ms", "auto_calibrated", "raw_x", "raw_y", "output_x", "output_y",
+            "tracking_status"
         ))
         self.input_mode = input_mode
         self.test = test
@@ -37,7 +39,7 @@ class BenchmarkLogger:
         if self._process:
             self._process.cpu_percent(interval=None)
 
-    def log_frame(self, frame_seconds, input_to_render_seconds):
+    def log_frame(self, frame_seconds, input_to_render_seconds, tracking_metrics=()):
         now = time.perf_counter()
         if self._start is None:
             self._start = now
@@ -52,7 +54,7 @@ class BenchmarkLogger:
             round(frame_seconds * 1000.0, 4),
             round(1.0 / frame_seconds, 4) if frame_seconds > 0 else 0.0,
             round(input_to_render_seconds * 1000.0, 4),
-            self._cpu, self._memory
+            self._cpu, self._memory, *(tracking_metrics or ("",) * 9)
         ))
         self._frame += 1
 

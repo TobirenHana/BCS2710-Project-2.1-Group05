@@ -18,8 +18,10 @@ import os
 import threading
 import time
 import urllib.request
+import csv
 
 from normalized_input import NormalizedInput
+from one_euro_filter import OneEuroFilter
 
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/face_landmarker/"
              "face_landmarker/float16/1/face_landmarker.task")
@@ -66,7 +68,9 @@ class FaceLandmarkerInputProvider:
     """Background webcam tracker that writes into a NormalizedInput."""
 
     def __init__(self, camera_index=0, point="eyes", mirror=True,
-                 max_age_seconds=0.15, width=640, height=480):
+                 max_age_seconds=0.15, width=640, height=480,
+                 filter_enabled=True, min_cutoff=1.0,
+                 beta=0.5, d_cutoff=1.0, video_path=None, telemetry=False):
         import cv2
         import mediapipe as mp
         from mediapipe.tasks import python as mp_tasks
@@ -77,16 +81,39 @@ class FaceLandmarkerInputProvider:
         self.ids = TRACK_POINTS[point]
         self.mirror = mirror
         self.max_age_seconds = max_age_seconds
+        self.filter_enabled = filter_enabled
+        self.log_tracking = os.getenv("TRACKING_LOG") == "1"
+        self.tracking_log = []
 
+        self.filter_x = OneEuroFilter(
+            min_cutoff=min_cutoff,
+            beta=beta,
+            d_cutoff=d_cutoff
+        )
+
+        self.filter_y = OneEuroFilter(
+            min_cutoff=min_cutoff,
+            beta=beta,
+            d_cutoff=d_cutoff
+        )
         if not os.path.exists(MODEL_PATH):
             print("Downloading Face Landmarker model...")
             urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
 
-        self._cap = cv2.VideoCapture(camera_index)
+        self.video_path = video_path
+        self.telemetry = [] if telemetry else None
+        self._cap = cv2.VideoCapture(str(video_path) if video_path else camera_index)
         if not self._cap.isOpened():
-            raise RuntimeError(f"Could not open camera {camera_index}")
-        self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+            raise RuntimeError(f"Could not open video/camera: {video_path or camera_index}")
+        if not video_path:
+            self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+            self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self.video_fps = self._cap.get(cv2.CAP_PROP_FPS) if video_path else None
+        if video_path and not (0 < self.video_fps <= 240):
+            raise RuntimeError("Video needs a valid frame rate")
+        actual_width = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_height = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(f"Actual camera resolution: {actual_width} x {actual_height}")
 
         options = vision.FaceLandmarkerOptions(
             base_options=mp_tasks.BaseOptions(model_asset_path=MODEL_PATH),
@@ -97,6 +124,8 @@ class FaceLandmarkerInputProvider:
 
         self._lock = threading.Lock()
         self._latest = None          # (x, y, captured_at, face_found)
+        self.sample_timestamp = None
+        self.sample_age_ms = None
         self.detector_ms = 0.0       # time spent in detect_for_video, last frame
         self.camera_fps = 0.0        # rate at which the thread gets new frames
         self.error = None            # set if the thread stops because of an exception
@@ -109,9 +138,21 @@ class FaceLandmarkerInputProvider:
         start = time.monotonic()
         last_ts = -1
         last_frame_time = None
+        next_frame = time.perf_counter()
         try:
             while self._running:
+                if self.video_path:
+                    # Replay at the recorded frame rate, without a webcam.
+                    delay = next_frame - time.perf_counter()
+                    if delay > 0:
+                        time.sleep(delay)
+                    next_frame = max(next_frame + 1 / self.video_fps, time.perf_counter())
                 ok, frame = self._cap.read()
+                if not ok and self.video_path:
+                    self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ok, frame = self._cap.read()
+                    if not ok:
+                        raise RuntimeError("Could not rewind/read replay video")
                 if not ok:
                     time.sleep(0.005)
                     continue
@@ -127,10 +168,28 @@ class FaceLandmarkerInputProvider:
 
                 if result.face_landmarks:
                     x, y = landmarks_to_normalized(result.face_landmarks[0], self.ids, self.mirror)
+
+                    raw_x, raw_y = x, y
+
+                    if self.filter_enabled:
+                        x = self.filter_x.filter(x, captured_at)
+                        y = self.filter_y.filter(y, captured_at)
+                    if self.log_tracking:
+                        self.tracking_log.append([
+                            captured_at, raw_x, raw_y, x, y,
+                            (detected_at - captured_at) * 1000.0
+                        ])
                     sample = (x, y, captured_at, True)
                 else:
-                    sample = (0.0, 0.0, captured_at, False)
+                    self.filter_x.reset()
+                    self.filter_y.reset()
 
+                    sample = (0.0, 0.0, captured_at, False)
+                if self.telemetry is not None:
+                    self.telemetry.append((captured_at, detected_at, int(sample[3]),
+                                           raw_x if sample[3] else "", raw_y if sample[3] else "",
+                                           sample[0] if sample[3] else "", sample[1] if sample[3] else "",
+                                           (detected_at - captured_at) * 1000.0))
                 with self._lock:
                     self._latest = sample
                     self.detector_ms = (detected_at - captured_at) * 1000.0
@@ -149,13 +208,47 @@ class FaceLandmarkerInputProvider:
         """
         with self._lock:
             sample = self._latest
-        found, x, y = evaluate_sample(sample, time.perf_counter(), self.max_age_seconds)
+        now = time.perf_counter()
+        found, x, y = evaluate_sample(sample, now, self.max_age_seconds)
         if found:
             input_state.set_position(x, y)
+            self.sample_timestamp = sample[2]
+            self.sample_age_ms = (now - sample[2]) * 1000.0
+        else:
+            self.sample_timestamp = None
+            self.sample_age_ms = None
+
         return found
 
+    def save_telemetry(self, path, start, end):
+        """Write one row per processed camera frame in the recording window."""
+        with open(path, "x", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            writer.writerow(("captured_at", "detected_at", "face_found", "raw_x", "raw_y",
+                             "filtered_x", "filtered_y", "detector_ms"))
+            writer.writerows(row for row in (self.telemetry or []) if start <= row[1] <= end)
+
     def close(self):
-        self._running = False
-        self._thread.join(timeout=1.0)
-        self._cap.release()
-        self._landmarker.close()
+            self._running = False
+            self._thread.join(timeout=1.0)
+            self._cap.release()
+            self._landmarker.close()
+
+            if self.log_tracking:
+                filename = f"tracking_data_{time.time_ns()}.csv"
+
+                with open(filename, "w", newline="") as file:
+                    writer = csv.writer(file)
+
+                    writer.writerow([
+                        "timestamp",
+                        "raw_x",
+                        "raw_y",
+                        "filtered_x",
+                        "filtered_y",
+                        "detector_ms"
+                    ])
+
+                    writer.writerows(self.tracking_log)
+
+                print(f"Tracking data saved to {filename}")
