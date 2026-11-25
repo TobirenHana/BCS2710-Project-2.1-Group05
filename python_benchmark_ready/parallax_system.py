@@ -88,6 +88,9 @@ tracking_gain = config.get("tracking_gain", 2.5) if tracker_input is not None el
 tracking = TrackingInput(config.get("tracking_hold_seconds", 0.5), gain=tracking_gain)
 tracking_found = True
 auto_calibrated = tracker_input is None or not config.get("tracking_auto_calibrate", False)
+calibration_samples = []
+calibration_sample_count = max(1, int(config.get("tracking_calibration_samples", 30)))
+last_calibration_timestamp = None
 running = True
 experiment_started = time.perf_counter()
 recording_started = None
@@ -208,10 +211,27 @@ while running:
         update_mouse_input(raw_input, WIDTH, HEIGHT)
     input_start = time.perf_counter() if benchmark is not None else None
     raw_x, raw_y = raw_input.get_position()
-    if tracking_found and (calibrate_requested or not auto_calibrated):
-        # In tracker mode, the first detected position becomes the centre.
+    if tracking_found and calibrate_requested:
         tracking.calibrate(raw_x, raw_y)
         auto_calibrated = True
+        calibration_samples.clear()
+
+    elif not auto_calibrated:
+        if not tracking_found:
+            calibration_samples.clear()
+            last_calibration_timestamp = None
+
+        elif tracker_input.sample_timestamp != last_calibration_timestamp:
+            last_calibration_timestamp = tracker_input.sample_timestamp
+            calibration_samples.append((raw_x, raw_y))
+
+            if len(calibration_samples) >= calibration_sample_count:
+                center_x_avg = sum(p[0] for p in calibration_samples) / len(calibration_samples)
+                center_y_avg = sum(p[1] for p in calibration_samples) / len(calibration_samples)
+
+                tracking.calibrate(center_x_avg, center_y_avg)
+                auto_calibrated = True
+                calibration_samples.clear()
     x, y = tracking.update(raw_x, raw_y, tracking_found, dt)
     input_state.set_position(x, y)
     target_x, target_y = input_state.get_position()
@@ -305,7 +325,18 @@ while running:
         if tracker_input.error is not None:
             tracker_text = f"Tracker stopped: {tracker_input.error!r}"
         screen.blit(font.render(tracker_text, True, (210, 215, 220)), (25, 120))
+    if tracker_input is not None:
+        if not auto_calibrated:
+                message = (
+                    f"Calibrating: {len(calibration_samples)}/"
+                    f"{calibration_sample_count} - Keep your head still"
+                )
+                color = (255, 200, 50)
+        else:
+                message = "Calibration complete"
+                color = (100, 220, 140)
 
+        screen.blit(font.render(message, True, color), (25, 140))
     if simulated_input is not None:
         status = "PAUSED" if simulated_input.paused else "PLAYING"
         raw_text = f"Raw x={raw_x:+.2f}, y={raw_y:+.2f}" if tracking_found else "Raw position unavailable"

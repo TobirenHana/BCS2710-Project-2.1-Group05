@@ -92,7 +92,7 @@ class FaceLandmarkerInputProvider:
             min_cutoff=min_cutoff,
             beta=beta,
             d_cutoff=d_cutoff
-)
+        )
         if not os.path.exists(MODEL_PATH):
             print("Downloading Face Landmarker model...")
             urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
@@ -112,6 +112,7 @@ class FaceLandmarkerInputProvider:
 
         self._lock = threading.Lock()
         self._latest = None          # (x, y, captured_at, face_found)
+        self.sample_timestamp = None
         self.detector_ms = 0.0       # time spent in detect_for_video, last frame
         self.camera_fps = 0.0        # rate at which the thread gets new frames
         self.error = None            # set if the thread stops because of an exception
@@ -173,6 +174,10 @@ class FaceLandmarkerInputProvider:
         found, x, y = evaluate_sample(sample, time.perf_counter(), self.max_age_seconds)
         if found:
             input_state.set_position(x, y)
+            self.sample_timestamp = sample[2]
+        else:
+            self.sample_timestamp = None
+
         return found
 
     def close(self):

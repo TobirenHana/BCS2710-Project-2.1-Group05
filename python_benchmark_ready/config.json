@@ -9,9 +9,10 @@
   "tracking_gain": 2.0,
   "tracking_mirror": true,
   "tracking_max_age_seconds": 0.15,
-  "tracking_auto_calibrate": false,
+  "tracking_auto_calibrate": true,
   "tracking_filter_enabled": true,
   "tracking_filter_min_cutoff": 1.0,
   "tracking_filter_beta": 2.0,
-  "tracking_filter_d_cutoff": 1.0
+  "tracking_filter_d_cutoff": 1.0,
+  "tracking_calibration_samples": 30
 }
