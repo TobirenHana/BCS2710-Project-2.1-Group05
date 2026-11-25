@@ -12,7 +12,6 @@ from benchmark import BenchmarkLogger
 
 
 def update_mouse_input(input_state: NormalizedInput, width: int, height: int) -> None:
-    """Debug adapter: convert mouse pixels to the shared normalized interface."""
     mouse_x, mouse_y = pygame.mouse.get_pos()
     input_state.set_position(
         (mouse_x - width // 2) / (width / 2),

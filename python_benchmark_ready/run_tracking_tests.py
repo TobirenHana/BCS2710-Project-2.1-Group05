@@ -1,4 +1,4 @@
-"""Repeat the original benchmark matrix with and without real face tracking."""
+
 import argparse
 import csv
 import hashlib
@@ -80,7 +80,6 @@ def group_key(row):
 
 
 def historical(folder):
-    """Import only Python frame CSVs from the user's earlier runs."""
     results = []
     if folder is None:
         return results

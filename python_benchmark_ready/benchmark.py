@@ -1,4 +1,4 @@
-"""CSV benchmark logger for the Pygame parallax prototype."""
+
 import atexit
 import csv
 import os

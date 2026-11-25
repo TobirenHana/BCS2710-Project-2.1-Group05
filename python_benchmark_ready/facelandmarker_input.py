@@ -1,18 +1,4 @@
-"""Webcam + MediaPipe Face Landmarker adapter for the parallax prototype.
 
-Turns Face Landmarker output into the same interface the mouse, scripted and
-simulated modes use: a NormalizedInput sample in [-1, 1] plus a
-tracking_found flag.
-
-The camera and the detector run in a background thread, so the 60 FPS render
-loop never waits for the 30 FPS webcam. The render loop only reads the latest
-result. A result older than max_age_seconds counts as lost tracking, so a
-frozen camera or a crashed thread makes the scene hold and then return to
-center instead of freezing on an old position.
-
-cv2 and mediapipe are imported only when the provider is created, so the other
-input modes (and the unit tests) run without them installed.
-"""
 
 import os
 import threading
@@ -34,15 +20,6 @@ TRACK_POINTS = {"eyes": EYE_CORNERS, "iris": IRIS_CENTERS}
 
 
 def landmarks_to_normalized(landmarks, ids=EYE_CORNERS, mirror=True):
-    """Average the chosen landmarks and convert them to the parallax range.
-
-    MediaPipe gives x/y from 0 to 1 across the camera image. The parallax code
-    wants -1 (left/top) to +1 (right/bottom), with 0 at the image centre.
-
-    The webcam image is not mirrored: when the viewer moves to their right,
-    they move left in the image. mirror=True flips x so that moving right
-    gives a positive x, the same as moving the mouse right.
-    """
     x = sum(landmarks[i].x for i in ids) / len(ids)
     y = sum(landmarks[i].y for i in ids) / len(ids)
     nx = (x - 0.5) * 2.0
@@ -51,11 +28,6 @@ def landmarks_to_normalized(landmarks, ids=EYE_CORNERS, mirror=True):
 
 
 def evaluate_sample(sample, now, max_age_seconds):
-    """Decide whether the latest tracker result can be used this frame.
-
-    sample is None or (x, y, captured_at, face_found).
-    Returns (tracking_found, x, y).
-    """
     if sample is None:
         return False, None, None
     x, y, captured_at, face_found = sample
@@ -65,7 +37,6 @@ def evaluate_sample(sample, now, max_age_seconds):
 
 
 class FaceLandmarkerInputProvider:
-    """Background webcam tracker that writes into a NormalizedInput."""
 
     def __init__(self, camera_index=0, point="eyes", mirror=True,
                  max_age_seconds=0.15, width=640, height=480,
@@ -201,11 +172,6 @@ class FaceLandmarkerInputProvider:
             print(f"Face Landmarker thread stopped: {exc!r}")
 
     def update(self, input_state: NormalizedInput) -> bool:
-        """Write the latest valid sample into input_state.
-
-        Returns tracking_found. When it is False, input_state is left unchanged
-        and TrackingInput handles holding / returning to centre.
-        """
         with self._lock:
             sample = self._latest
         now = time.perf_counter()
@@ -221,7 +187,6 @@ class FaceLandmarkerInputProvider:
         return found
 
     def save_telemetry(self, path, start, end):
-        """Write one row per processed camera frame in the recording window."""
         with open(path, "x", newline="", encoding="utf-8") as file:
             writer = csv.writer(file)
             writer.writerow(("captured_at", "detected_at", "face_found", "raw_x", "raw_y",

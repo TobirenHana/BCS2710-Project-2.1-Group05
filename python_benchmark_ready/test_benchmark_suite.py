@@ -1,4 +1,4 @@
-"""Regression tests for instrumentation and the unfiltered tracker path."""
+
 import csv
 import tempfile
 import threading

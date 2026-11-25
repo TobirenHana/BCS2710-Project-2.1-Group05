@@ -1,4 +1,4 @@
-"""Record one reusable test clip from the webcam (local file only)."""
+
 import argparse
 from pathlib import Path
 import time

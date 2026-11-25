@@ -1,4 +1,3 @@
-"""Tests for the Face Landmarker adapter logic. No camera or mediapipe needed."""
 
 import unittest
 from types import SimpleNamespace

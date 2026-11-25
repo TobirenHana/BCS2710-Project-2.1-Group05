@@ -1,4 +1,3 @@
-"""Run with: python -m unittest discover -s python_benchmark_ready -p 'test_*.py'."""
 
 import unittest
 
