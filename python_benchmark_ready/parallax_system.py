@@ -63,6 +63,8 @@ if args.input_mode == "tracker":
         point=args.track_point,
         mirror=config.get("tracking_mirror", True),
         max_age_seconds=config.get("tracking_max_age_seconds", 0.15),
+        width=config.get("tracking_camera_width", 640),
+        height=config.get("tracking_camera_height", 480),
         filter_enabled=config.get("tracking_filter_enabled", True),
         min_cutoff=config.get("tracking_filter_min_cutoff", 1.0),
         beta=config.get("tracking_filter_beta", 0.5),

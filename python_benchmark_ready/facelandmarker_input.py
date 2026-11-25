@@ -18,6 +18,7 @@ import os
 import threading
 import time
 import urllib.request
+import csv
 
 from normalized_input import NormalizedInput
 from one_euro_filter import OneEuroFilter
@@ -81,6 +82,8 @@ class FaceLandmarkerInputProvider:
         self.mirror = mirror
         self.max_age_seconds = max_age_seconds
         self.filter_enabled = filter_enabled
+        self.log_tracking = os.getenv("TRACKING_LOG") == "1"
+        self.tracking_log = []
 
         self.filter_x = OneEuroFilter(
             min_cutoff=min_cutoff,
@@ -102,6 +105,9 @@ class FaceLandmarkerInputProvider:
             raise RuntimeError(f"Could not open camera {camera_index}")
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        actual_width = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_height = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        print(f"Actual camera resolution: {actual_width} x {actual_height}")
 
         options = vision.FaceLandmarkerOptions(
             base_options=mp_tasks.BaseOptions(model_asset_path=MODEL_PATH),
@@ -144,10 +150,21 @@ class FaceLandmarkerInputProvider:
                 if result.face_landmarks:
                     x, y = landmarks_to_normalized(result.face_landmarks[0], self.ids, self.mirror)
 
+                    raw_x, raw_y = x, y
+
                     if self.filter_enabled:
                         x = self.filter_x.filter(x, captured_at)
                         y = self.filter_y.filter(y, captured_at)
-                    sample = (x, y, captured_at, True)
+                        if self.log_tracking:
+                            self.tracking_log.append([
+                                captured_at,
+                                raw_x,
+                                raw_y,
+                                x,
+                                y,
+                                (detected_at - captured_at) * 1000.0
+                    ])
+                        sample = (x, y, captured_at, True)
                 else:
                     self.filter_x.reset()
                     self.filter_y.reset()
@@ -181,7 +198,26 @@ class FaceLandmarkerInputProvider:
         return found
 
     def close(self):
-        self._running = False
-        self._thread.join(timeout=1.0)
-        self._cap.release()
-        self._landmarker.close()
+            self._running = False
+            self._thread.join(timeout=1.0)
+            self._cap.release()
+            self._landmarker.close()
+
+            if self.log_tracking:
+                filename = f"tracking_data_{time.time_ns()}.csv"
+
+                with open(filename, "w", newline="") as file:
+                    writer = csv.writer(file)
+
+                    writer.writerow([
+                        "timestamp",
+                        "raw_x",
+                        "raw_y",
+                        "filtered_x",
+                        "filtered_y",
+                        "detector_ms"
+                    ])
+
+                    writer.writerows(self.tracking_log)
+
+                print(f"Tracking data saved to {filename}")

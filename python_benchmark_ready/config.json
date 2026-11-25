@@ -14,5 +14,7 @@
   "tracking_filter_min_cutoff": 1.0,
   "tracking_filter_beta": 2.0,
   "tracking_filter_d_cutoff": 1.0,
-  "tracking_calibration_samples": 30
+  "tracking_calibration_samples": 30,
+  "tracking_camera_width": 640,
+  "tracking_camera_height": 480
 }
