@@ -67,7 +67,9 @@ class FaceLandmarkerInputProvider:
     """Background webcam tracker that writes into a NormalizedInput."""
 
     def __init__(self, camera_index=0, point="eyes", mirror=True,
-                 max_age_seconds=0.15, width=640, height=480):
+                 max_age_seconds=0.15, width=640, height=480,
+                 filter_enabled=True, min_cutoff=1.0,
+                 beta=0.5, d_cutoff=1.0):
         import cv2
         import mediapipe as mp
         from mediapipe.tasks import python as mp_tasks
@@ -78,9 +80,19 @@ class FaceLandmarkerInputProvider:
         self.ids = TRACK_POINTS[point]
         self.mirror = mirror
         self.max_age_seconds = max_age_seconds
-        self.filter_x = OneEuroFilter(min_cutoff=1.0, beta=0.5)
-        self.filter_y = OneEuroFilter(min_cutoff=1.0, beta=0.5)
+        self.filter_enabled = filter_enabled
 
+        self.filter_x = OneEuroFilter(
+            min_cutoff=min_cutoff,
+            beta=beta,
+            d_cutoff=d_cutoff
+        )
+
+        self.filter_y = OneEuroFilter(
+            min_cutoff=min_cutoff,
+            beta=beta,
+            d_cutoff=d_cutoff
+)
         if not os.path.exists(MODEL_PATH):
             print("Downloading Face Landmarker model...")
             urllib.request.urlretrieve(MODEL_URL, MODEL_PATH)
@@ -131,9 +143,9 @@ class FaceLandmarkerInputProvider:
                 if result.face_landmarks:
                     x, y = landmarks_to_normalized(result.face_landmarks[0], self.ids, self.mirror)
 
-                    x = self.filter_x.filter(x, captured_at)
-                    y = self.filter_y.filter(y, captured_at)
-
+                    if self.filter_enabled:
+                        x = self.filter_x.filter(x, captured_at)
+                        y = self.filter_y.filter(y, captured_at)
                     sample = (x, y, captured_at, True)
                 else:
                     self.filter_x.reset()
